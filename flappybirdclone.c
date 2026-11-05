@@ -1,11 +1,3 @@
-/*To-do:
- -set BG color
- -proper screen clearing
- -player physics
- -pipes
- -losing
- * */
-
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <stdio.h>
@@ -23,15 +15,21 @@ typedef struct {
 } buf;
 
 void setpixel(buf *Buf, int32_t x, int32_t y, uint32_t color){
-    uint32_t *pixel = (uint32_t *)((uint32_t *)Buf->Mem + (599-y) * Buf->W + x);
-    *pixel = color;
+    if (x >= 0 && x <= Buf->W-1 && y >= 0 && y <= Buf->H-1){
+        uint32_t *pixel = (uint32_t *)((uint32_t *)Buf->Mem + (599-y) * Buf->W + x);
+        *pixel = color;
+    }
 }
 
 void rect(buf *Buf, int32_t x, int32_t y, int32_t w, int32_t h, uint32_t color){
     for (int i = x; i < x + w; i++){
-        for (int j = x; j < y + h; j++)
+        for (int j = y; j < y + h; j++)
             setpixel(Buf, i, j, color);
     }
+}
+
+int aabb(int minx1, int miny1, int maxx1, int maxy1, int minx2, int miny2, int maxx2, int maxy2){
+    return minx1 <= maxx2 && maxx1 >= minx2 && miny1 <= maxy2 && maxy1 >= miny2;
 }
 
 int main(){
@@ -80,9 +78,19 @@ int main(){
     int bytesbetweenscanlines = 0;
     XImage *winbuf = XCreateImage(dis, visinfo.visual, visinfo.depth, ZPixmap, offset, (char *)Buf.Mem, winw, winh, bitsperpixel, bytesbetweenscanlines);
     
-    int playerx = 200;
-    int playery = 250;
-    int playeryv = 0;
+    int x = 100;
+    double playery = 200;
+    double playeryv;
+    int state = 0;
+    int score = 0;
+
+    int pipe1botx = 800;
+    int pipe1boty = 0;
+    int pipe1topx = 800;
+
+    int pipe2botx = 1250;
+    int pipe2boty = -100;
+    int pipe2topx = 1250;
 
     int running = 1;
     while (running){
@@ -94,10 +102,12 @@ int main(){
 		case KeyRelease:
 		{
 		    XKeyPressedEvent *event = (XKeyPressedEvent *)&gevent;
-		    if (event->keycode == XKeysymToKeycode(dis, XK_Escape))
-		        running = 0;
-		    if (event->keycode == XKeysymToKeycode(dis, XK_Up))
-		        playeryv = 10;
+		    if (event->keycode == XKeysymToKeycode(dis, XK_Up)){
+		        if (state == 0)
+			    state = 1;
+		        if (state == 1)
+			    playeryv = 5;
+		    }
 		}
 		case ClientMessage:
 		{
@@ -124,11 +134,57 @@ int main(){
 	    }
 	}
         //logic
-	playeryv -= 2;
-	playery += playeryv;
+	if (state == 1){
+	    playeryv -= 0.1;
+	    playery += playeryv;
+
+	    if (playery + 49 > 599){
+	        playery = 549;
+		playeryv = 0;
+	    }
+
+	    pipe1botx -= 2;
+	    pipe1topx -= 2;
+	    if (pipe1botx == x)
+		score++;
+
+	    if (pipe1botx == -76){
+	        pipe1botx = 800;
+		pipe1topx = 800;
+	    }
+
+	    pipe2botx -= 2;
+	    pipe2topx -= 2;
+	    if (pipe2botx == x)
+		score++;
+
+	    if (pipe2botx == -76){
+	        pipe2botx = 800;
+		pipe2topx = 800;
+	    }
+
+	    if (aabb(x, playery, x + 49, playery + 49, pipe1botx, pipe1boty, pipe1botx + 74, pipe1boty + 199))
+		running = 0;
+	    if (aabb(x, playery, x + 49, playery + 49, pipe1topx, pipe1boty+500, pipe1topx + 74, pipe1boty + 699))
+		running = 0;
+	    if (aabb(x, playery, x + 49, playery + 49, pipe2botx, pipe2boty, pipe2botx + 74, pipe2boty + 199))
+		running = 0;
+	    if (aabb(x, playery, x + 49, playery + 49, pipe2topx, pipe2boty+500, pipe2topx + 74, pipe2boty + 699))
+		running = 0;
+	    if (playery + 49 < 0)
+		running = 0;
+	}
 
         //render
-	rect(&Buf, 0, playery, 50, 50, 0xffff00);
+	if (state == 1){
+	    rect(&Buf, 0, 0, Buf.W, Buf.H, 0x528afa);
+	    rect(&Buf, x, (int32_t)playery, 50, 50, 0xffff00);
+
+	    rect(&Buf, pipe1botx, pipe1boty, 75, 200, 0x38fc3b);
+	    rect(&Buf, pipe1botx, pipe1boty+500, 75, 200, 0x38fc3b);
+	    rect(&Buf, pipe2botx, pipe2boty, 75, 200, 0x38fc3b);
+	    rect(&Buf, pipe2botx, pipe2boty+500, 75, 200, 0x38fc3b);
+	}
 
 	int sx = 0;
 	int sy = 0;
@@ -136,4 +192,6 @@ int main(){
 	int dy = 0;
         XPutImage(dis, win, context, winbuf, sx, sy, dx, dy, winw, winh);
     }
+    printf("\033[H\033[2J");
+    printf("Score: %d\n", score);
 }
